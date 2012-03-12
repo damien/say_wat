@@ -1,0 +1,50 @@
+#!/usr/bin/env ruby
+
+require 'logger'
+require 'redis'
+require 'uri'
+
+if ARGV.first
+  redis = URI.parse(ARGV.first)
+  config = {
+    :host => redis.host,
+    :port => redis.port,
+    :user => redis.user,
+    :password => redis.password
+  }
+else
+  puts "Usage: saywat redis://user:pass@redis-server.com:1234"
+  exit(1)
+end
+
+$logger = Logger.new(STDOUT)
+$redis = Redis.new
+$subscriptions = []
+
+$logger.formatter = proc { |severity, datetime, progname, msg|
+  "#{datetime} [#{severity}] #{msg.dump}\n"
+}
+
+trap(:INT) do
+  $logger.info "Disconnecting"
+  $redis.unsubscribe
+  exit
+end
+
+$redis.subscribe(:say) do |on|
+
+  on.subscribe do |channel, subscription|
+    $subscriptions.push(channel)
+    $logger.info "Subscribed to #{channel} (#{subscription} subscriptions)"
+  end
+
+  on.message do |channel, message|
+    $logger.info "Say: #{message}"
+  end
+
+  on.unsubscribe do |channel, subscription|
+    $subscriptions.reject! { |c| c == channel }
+    $logger.info "Unsubscribed from #{channel} (#{subscription} subscriptions)"
+  end
+
+end
